@@ -5,8 +5,9 @@ import crypto from 'crypto';
 // GET: Store Details
 export async function GET(
     req: NextRequest,
-    { params }: { params: { id: string } }
+    props: { params: Promise<{ id: string }> }
 ) {
+    const params = await props.params;
     try {
         const store = await prisma.store.findUnique({
             where: { id: params.id },
@@ -44,8 +45,9 @@ export async function GET(
 // PATCH: Update Store
 export async function PATCH(
     req: NextRequest,
-    { params }: { params: { id: string } }
+    props: { params: Promise<{ id: string }> }
 ) {
+    const params = await props.params;
     try {
         const body = await req.json();
         const { editKey, ...data } = body;
@@ -95,16 +97,13 @@ export async function PATCH(
 // DELETE: Logical Delete
 export async function DELETE(
     req: NextRequest,
-    { params }: { params: { id: string } }
+    props: { params: Promise<{ id: string }> }
 ) {
+    const params = await props.params;
     try {
         const { searchParams } = new URL(req.url);
-        const editKey = searchParams.get('key'); // Or from body, but DELETE usually has no body? Req says "key required". Usually query param for DELETE.
+        const editKey = searchParams.get('key');
 
-        // If body is needed, we need to read req.json(), but some clients/browsers don't send body in DELETE.
-        // However, requirement document just says "DELETE ... (key必須)".
-        // I check both query and body if possible, or stick to query for DELETE. Or Header.
-        // Let's try body first, catching error if empty.
         let key = editKey;
         if (!key) {
             try {

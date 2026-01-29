@@ -7,10 +7,11 @@ export const dynamic = 'force-dynamic';
 export default async function EditStorePage({
     params
 }: {
-    params: { id: string }
+    params: Promise<{ id: string }>
 }) {
+    const { id } = await params;
     const store = await prisma.store.findUnique({
-        where: { id: params.id },
+        where: { id },
     });
 
     if (!store || store.isDeleted) {
