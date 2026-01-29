@@ -13,10 +13,11 @@ export const dynamic = 'force-dynamic';
 export default async function StoreDetailPage({
     params
 }: {
-    params: { id: string }
+    params: Promise<{ id: string }>
 }) {
+    const { id } = await params;
     const store = await prisma.store.findUnique({
-        where: { id: params.id },
+        where: { id },
         include: {
             reviews: {
                 where: { isDeleted: false },

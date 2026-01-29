@@ -5,8 +5,9 @@ import crypto from 'crypto';
 // PATCH: Update Review
 export async function PATCH(
     req: NextRequest,
-    { params }: { params: { id: string } }
+    props: { params: Promise<{ id: string }> }
 ) {
+    const params = await props.params;
     try {
         const body = await req.json();
         const { editKey, rating, body: reviewBody, authorName, visitedAt } = body;
@@ -61,8 +62,9 @@ export async function PATCH(
 // DELETE: Logical Delete
 export async function DELETE(
     req: NextRequest,
-    { params }: { params: { id: string } }
+    props: { params: Promise<{ id: string }> }
 ) {
+    const params = await props.params;
     try {
         const { searchParams } = new URL(req.url);
         const editKey = searchParams.get('key');
