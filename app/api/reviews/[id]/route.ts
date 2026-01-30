@@ -5,8 +5,10 @@ import crypto from 'crypto';
 // PATCH: Update Review
 export async function PATCH(
   req: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params;
+
   try {
     const body = await req.json();
     const { editKey, rating, body: reviewBody, authorName, visitedAt } = body;
@@ -16,21 +18,20 @@ export async function PATCH(
     }
 
     const review = await prisma.review.findUnique({
-      where: { id: params.id },
+      where: { id },
     });
 
     if (!review || review.isDeleted) {
       return NextResponse.json({ error: 'Review not found' }, { status: 404 });
     }
 
-    // Verify key
     const hash = crypto.createHash('sha256').update(editKey).digest('hex');
     if (hash !== review.editKeyHash) {
       return NextResponse.json({ error: 'Invalid edit key' }, { status: 403 });
     }
 
     const updated = await prisma.review.update({
-      where: { id: params.id },
+      where: { id },
       data: {
         rating: rating !== undefined ? Number(rating) : undefined,
         body: reviewBody,
@@ -39,7 +40,6 @@ export async function PATCH(
       },
     });
 
-    // Update store updatedAt
     await prisma.store.update({
       where: { id: review.storeId },
       data: { updatedAt: new Date() },
@@ -49,9 +49,8 @@ export async function PATCH(
       review: {
         ...updated,
         editKeyHash: undefined,
-      }
+      },
     });
-
   } catch (error) {
     console.error(error);
     return NextResponse.json({ error: 'Failed to update review' }, { status: 500 });
@@ -61,19 +60,19 @@ export async function PATCH(
 // DELETE: Logical Delete
 export async function DELETE(
   req: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params;
+
   try {
     const { searchParams } = new URL(req.url);
-    const editKey = searchParams.get('key');
+    let key = searchParams.get('key');
 
-    // Check body if query is empty (as backup)
-    let key = editKey;
     if (!key) {
       try {
         const body = await req.json();
         key = body.key || body.editKey;
-      } catch (e) { }
+      } catch {}
     }
 
     if (!key) {
@@ -81,35 +80,31 @@ export async function DELETE(
     }
 
     const review = await prisma.review.findUnique({
-      where: { id: params.id },
+      where: { id },
     });
 
     if (!review || review.isDeleted) {
       return NextResponse.json({ error: 'Review not found' }, { status: 404 });
     }
 
-    // Verify key
     const hash = crypto.createHash('sha256').update(key).digest('hex');
     if (hash !== review.editKeyHash) {
       return NextResponse.json({ error: 'Invalid edit key' }, { status: 403 });
     }
 
     await prisma.review.update({
-      where: { id: params.id },
+      where: { id },
       data: { isDeleted: true },
     });
 
-    // Update store updatedAt
     await prisma.store.update({
       where: { id: review.storeId },
       data: { updatedAt: new Date() },
     });
 
     return NextResponse.json({ message: 'Review deleted' });
-
   } catch (error) {
     console.error(error);
     return NextResponse.json({ error: 'Failed to delete review' }, { status: 500 });
   }
 }
-
