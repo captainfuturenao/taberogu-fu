@@ -1,148 +1,150 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import crypto from 'crypto';
 
-// GET: Store Details
+/**
+ * app/api/stores/[id]/route.ts
+ * - GET: 店舗取得（論理削除は除外）
+ * - PATCH: 店舗更新（editKey必須）
+ * - DELETE: 店舗論理削除（editKey必須）
+ */
+
+// GET: Get Store by ID
 export async function GET(
-    req: NextRequest,
-    { params }: { params: { id: string } }
+  req: Request,
+  { params }: { params: Promise<{ id: string }> }
 ) {
-    try {
-        const store = await prisma.store.findUnique({
-            where: { id: params.id },
-            include: {
-                reviews: {
-                    select: { rating: true },
-                    where: { isDeleted: false },
-                },
-            },
-        });
+  const { id } = await params;
 
-        if (!store || store.isDeleted) {
-            return NextResponse.json({ error: 'Store not found' }, { status: 404 });
-        }
+  try {
+    const store = await prisma.store.findUnique({
+      where: { id },
+    });
 
-        const validReviews = store.reviews;
-        const count = validReviews.length;
-        const avg = count > 0
-            ? validReviews.reduce((acc, r) => acc + r.rating, 0) / count
-            : 0;
-
-        const { reviews, editKeyHash, ...rest } = store;
-
-        return NextResponse.json({
-            ...rest,
-            reviewCount: count,
-            averageRating: parseFloat(avg.toFixed(1)),
-        });
-    } catch (error) {
-        console.error(error);
-        return NextResponse.json({ error: 'Failed to fetch store' }, { status: 500 });
+    if (!store || (store as any).isDeleted) {
+      return NextResponse.json({ error: 'Store not found' }, { status: 404 });
     }
+
+    // editKeyHashは返さない
+    const { editKeyHash, ...safeStore } = store as any;
+
+    return NextResponse.json({ store: safeStore });
+  } catch (error) {
+    console.error(error);
+    return NextResponse.json({ error: 'Failed to fetch store' }, { status: 500 });
+  }
 }
 
-// PATCH: Update Store
+// PATCH: Update Store (requires editKey)
 export async function PATCH(
-    req: NextRequest,
-    { params }: { params: { id: string } }
+  req: Request,
+  { params }: { params: Promise<{ id: string }> }
 ) {
-    try {
-        const body = await req.json();
-        const { editKey, ...data } = body;
+  const { id } = await params;
 
-        if (!editKey) {
-            return NextResponse.json({ error: 'Edit key is required' }, { status: 403 });
-        }
+  try {
+    const body = await req.json();
+    const { editKey, ...updates } = body ?? {};
 
-        const store = await prisma.store.findUnique({
-            where: { id: params.id },
-        });
-
-        if (!store || store.isDeleted) {
-            return NextResponse.json({ error: 'Store not found' }, { status: 404 });
-        }
-
-        // Verify key
-        const hash = crypto.createHash('sha256').update(editKey).digest('hex');
-        if (hash !== store.editKeyHash) {
-            return NextResponse.json({ error: 'Invalid edit key' }, { status: 403 });
-        }
-
-        // Update
-        // Allowed fields
-        const { name, address, phone, businessHours, closedDays, websiteUrl, genre, description } = data;
-
-        const updated = await prisma.store.update({
-            where: { id: params.id },
-            data: {
-                name, address, phone, businessHours, closedDays, websiteUrl, genre, description
-            },
-        });
-
-        return NextResponse.json({
-            store: {
-                ...updated,
-                editKeyHash: undefined,
-            }
-        });
-
-    } catch (error) {
-        console.error(error);
-        return NextResponse.json({ error: 'Failed to update store' }, { status: 500 });
+    if (!editKey) {
+      return NextResponse.json({ error: 'Edit key is required' }, { status: 403 });
     }
+
+    const store = await prisma.store.findUnique({
+      where: { id },
+    });
+
+    if (!store || (store as any).isDeleted) {
+      return NextResponse.json({ error: 'Store not found' }, { status: 404 });
+    }
+
+    // Verify key
+    const hash = crypto.createHash('sha256').update(String(editKey)).digest('hex');
+    if (hash !== (store as any).editKeyHash) {
+      return NextResponse.json({ error: 'Invalid edit key' }, { status: 403 });
+    }
+
+    // 更新可能フィールド（勝手に全部更新しないように制限）
+    const allowed: Record<string, any> = {};
+    const allowKeys = [
+      'name',
+      'address',
+      'phone',
+      'businessHours',
+      'closedDays',
+      'websiteUrl',
+      'genre',
+      'description',
+    ];
+
+    for (const k of allowKeys) {
+      if (k in updates) allowed[k] = updates[k];
+    }
+
+    const updated = await prisma.store.update({
+      where: { id },
+      data: {
+        ...allowed,
+        updatedAt: new Date(),
+      },
+    });
+
+    const { editKeyHash, ...safeStore } = updated as any;
+    return NextResponse.json({ store: safeStore });
+  } catch (error) {
+    console.error(error);
+    return NextResponse.json({ error: 'Failed to update store' }, { status: 500 });
+  }
 }
 
-// DELETE: Logical Delete
+// DELETE: Logical Delete Store (requires editKey)
 export async function DELETE(
-    req: NextRequest,
-    { params }: { params: { id: string } }
+  req: Request,
+  { params }: { params: Promise<{ id: string }> }
 ) {
-    try {
-        const { searchParams } = new URL(req.url);
-        const editKey = searchParams.get('key'); // Or from body, but DELETE usually has no body? Req says "key required". Usually query param for DELETE.
+  const { id } = await params;
 
-        // If body is needed, we need to read req.json(), but some clients/browsers don't send body in DELETE.
-        // However, requirement document just says "DELETE ... (key必須)".
-        // I check both query and body if possible, or stick to query for DELETE. Or Header.
-        // Let's try body first, catching error if empty.
-        let key = editKey;
-        if (!key) {
-            try {
-                const body = await req.json();
-                key = body.key || body.editKey;
-            } catch (e) {
-                // No body
-            }
-        }
+  try {
+    const { searchParams } = new URL(req.url);
+    let key = searchParams.get('key');
 
-        if (!key) {
-            return NextResponse.json({ error: 'Edit key is required' }, { status: 403 });
-        }
-
-        const store = await prisma.store.findUnique({
-            where: { id: params.id },
-        });
-
-        if (!store || store.isDeleted) {
-            return NextResponse.json({ error: 'Store not found' }, { status: 404 });
-        }
-
-        // Verify key
-        const hash = crypto.createHash('sha256').update(key).digest('hex');
-        if (hash !== store.editKeyHash) {
-            return NextResponse.json({ error: 'Invalid edit key' }, { status: 403 });
-        }
-
-        // Logical delete
-        await prisma.store.update({
-            where: { id: params.id },
-            data: { isDeleted: true },
-        });
-
-        return NextResponse.json({ message: 'Store deleted' });
-
-    } catch (error) {
-        console.error(error);
-        return NextResponse.json({ error: 'Failed to delete store' }, { status: 500 });
+    // クエリに無い場合はbodyも見る（保険）
+    if (!key) {
+      try {
+        const body = await req.json();
+        key = body?.key || body?.editKey;
+      } catch {}
     }
+
+    if (!key) {
+      return NextResponse.json({ error: 'Edit key is required' }, { status: 403 });
+    }
+
+    const store = await prisma.store.findUnique({
+      where: { id },
+    });
+
+    if (!store || (store as any).isDeleted) {
+      return NextResponse.json({ error: 'Store not found' }, { status: 404 });
+    }
+
+    // Verify key
+    const hash = crypto.createHash('sha256').update(String(key)).digest('hex');
+    if (hash !== (store as any).editKeyHash) {
+      return NextResponse.json({ error: 'Invalid edit key' }, { status: 403 });
+    }
+
+    await prisma.store.update({
+      where: { id },
+      data: {
+        isDeleted: true,
+        updatedAt: new Date(),
+      } as any,
+    });
+
+    return NextResponse.json({ message: 'Store deleted' });
+  } catch (error) {
+    console.error(error);
+    return NextResponse.json({ error: 'Failed to delete store' }, { status: 500 });
+  }
 }
