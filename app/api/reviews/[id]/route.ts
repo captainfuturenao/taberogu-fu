@@ -2,12 +2,10 @@ import { NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import crypto from 'crypto';
 
-type Context = { params: { id: string } };
-
 // PATCH: Update Review
 export async function PATCH(
   req: Request,
-  { params }: Context
+  { params }: { params: { id: string } }
 ) {
   try {
     const body = await req.json();
@@ -63,7 +61,7 @@ export async function PATCH(
 // DELETE: Logical Delete
 export async function DELETE(
   req: Request,
-  { params }: Context
+  { params }: { params: { id: string } }
 ) {
   try {
     const { searchParams } = new URL(req.url);
@@ -114,3 +112,4 @@ export async function DELETE(
     return NextResponse.json({ error: 'Failed to delete review' }, { status: 500 });
   }
 }
+
