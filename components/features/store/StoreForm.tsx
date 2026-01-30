@@ -138,8 +138,9 @@ export function StoreForm({ initialData, isEdit = false }: StoreFormProps) {
                     </div>
                     <div className="pt-2">
                         <Button asChild variant="link" className="px-0 text-green-700 font-bold">
-                            <a href="/stores">店舗一覧へ戻る</a>
+                            <Link href="/stores">店舗一覧へ戻る</Link>
                         </Button>
+
                     </div>
                 </AlertDescription>
             </Alert>
